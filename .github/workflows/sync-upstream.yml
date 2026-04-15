@@ -1,0 +1,90 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Sync from upstream and open PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Fetch full history so we can fast-forward main
+          fetch-depth: 0
+          # Use the default GITHUB_TOKEN — needs write access to push + open PRs
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/pingdotgg/t3code.git
+
+      - name: Fetch upstream main
+        run: git fetch upstream main
+
+      - name: Check for new upstream commits
+        id: check
+        run: |
+          LOCAL=$(git rev-parse origin/main)
+          UPSTREAM=$(git rev-parse upstream/main)
+          echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
+          echo "upstream=$UPSTREAM" >> "$GITHUB_OUTPUT"
+          if [ "$LOCAL" = "$UPSTREAM" ]; then
+            echo "behind=false" >> "$GITHUB_OUTPUT"
+            echo "main is already up to date with upstream"
+          else
+            echo "behind=true" >> "$GITHUB_OUTPUT"
+            COMMIT_COUNT=$(git rev-list --count origin/main..upstream/main)
+            echo "count=$COMMIT_COUNT" >> "$GITHUB_OUTPUT"
+            echo "main is $COMMIT_COUNT commit(s) behind upstream"
+          fi
+
+      - name: Fast-forward main to upstream
+        if: steps.check.outputs.behind == 'true'
+        run: |
+          git checkout main
+          git merge --ff-only upstream/main
+          git push origin main
+
+      - name: Create PR into dev
+        if: steps.check.outputs.behind == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if an open sync PR already exists
+          EXISTING=$(gh pr list --base dev --head main --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "Sync PR #$EXISTING already open — skipping creation"
+            exit 0
+          fi
+
+          gh pr create \
+            --base dev \
+            --head main \
+            --title "Sync upstream (${{ steps.check.outputs.count }} new commits)" \
+            --body "$(cat <<'EOF'
+          ## Upstream sync
+
+          Automatically synced **main** with [upstream](https://github.com/pingdotgg/t3code) (`${{ steps.check.outputs.upstream }}`).
+
+          **${{ steps.check.outputs.count }}** new commit(s) from upstream.
+
+          ### Review checklist
+          - [ ] Check for conflicts with local changes on `dev`
+          - [ ] Verify CI passes
+          - [ ] Merge when ready
+          EOF
+          )"

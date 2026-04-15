@@ -34,6 +34,7 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { resolveAndPersistPreferredEditor } from "../../editorPreferences";
 import { isElectron } from "../../env";
+import { COLOR_SCHEMES, useColorScheme } from "../../hooks/useColorScheme";
 import { useTheme } from "../../hooks/useTheme";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
@@ -493,6 +494,7 @@ export function useSettingsRestore(onRestored?: () => void) {
 
 export function GeneralSettingsPanel() {
   const { theme, setTheme } = useTheme();
+  const { colorScheme, setColorScheme } = useColorScheme();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const [openingPathByTarget, setOpeningPathByTarget] = useState({
@@ -782,6 +784,38 @@ export function GeneralSettingsPanel() {
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
                 {THEME_OPTIONS.map((option) => (
+                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Color scheme"
+          description="Apply a color palette across the entire app."
+          resetAction={
+            colorScheme !== "default" ? (
+              <SettingResetButton label="color scheme" onClick={() => setColorScheme("default")} />
+            ) : null
+          }
+          control={
+            <Select
+              value={colorScheme}
+              onValueChange={(value) => {
+                const match = COLOR_SCHEMES.find((s) => s.value === value);
+                if (match) setColorScheme(match.value);
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Color scheme">
+                <SelectValue>
+                  {COLOR_SCHEMES.find((s) => s.value === colorScheme)?.label ?? "Default"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {COLOR_SCHEMES.map((option) => (
                   <SelectItem hideIndicator key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -1246,13 +1280,8 @@ export function GeneralSettingsPanel() {
 
                     {providerCard.provider === "claudeAgent" ? (
                       <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                        <label
-                          htmlFor="provider-install-claudeAgent-api-key"
-                          className="block"
-                        >
-                          <span className="text-xs font-medium text-foreground">
-                            API key
-                          </span>
+                        <label htmlFor="provider-install-claudeAgent-api-key" className="block">
+                          <span className="text-xs font-medium text-foreground">API key</span>
                           <Input
                             id="provider-install-claudeAgent-api-key"
                             className="mt-1.5"
