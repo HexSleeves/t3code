@@ -63,6 +63,8 @@ jobs:
         if: steps.check.outputs.behind == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_COUNT: ${{ steps.check.outputs.count }}
+          UPSTREAM_SHA: ${{ steps.check.outputs.upstream }}
         run: |
           # Check if an open sync PR already exists
           EXISTING=$(gh pr list --base dev --head main --state open --json number --jq '.[0].number // empty')
@@ -71,20 +73,19 @@ jobs:
             exit 0
           fi
 
+          PR_BODY="## Upstream sync
+
+          Automatically synced **main** with [upstream](https://github.com/pingdotgg/t3code) (\`${UPSTREAM_SHA}\`).
+
+          **${COMMIT_COUNT}** new commit(s) from upstream.
+
+          ### Review checklist
+          - [ ] Check for conflicts with local changes on \`dev\`
+          - [ ] Verify CI passes
+          - [ ] Merge when ready"
+
           gh pr create \
             --base dev \
             --head main \
-            --title "Sync upstream (${{ steps.check.outputs.count }} new commits)" \
-            --body "$(cat <<'EOF'
-## Upstream sync
-
-Automatically synced **main** with [upstream](https://github.com/pingdotgg/t3code) (`${{ steps.check.outputs.upstream }}`).
-
-**${{ steps.check.outputs.count }}** new commit(s) from upstream.
-
-### Review checklist
-- [ ] Check for conflicts with local changes on `dev`
-- [ ] Verify CI passes
-- [ ] Merge when ready
-EOF
-          )"
+            --title "Sync upstream (${COMMIT_COUNT} new commits)" \
+            --body "$PR_BODY"
