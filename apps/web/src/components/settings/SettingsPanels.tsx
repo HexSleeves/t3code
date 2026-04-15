@@ -511,6 +511,8 @@ export function GeneralSettingsPanel() {
     claudeAgent: Boolean(
       settings.providers.claudeAgent.binaryPath !==
         DEFAULT_UNIFIED_SETTINGS.providers.claudeAgent.binaryPath ||
+      settings.providers.claudeAgent.apiKey !==
+        DEFAULT_UNIFIED_SETTINGS.providers.claudeAgent.apiKey ||
       settings.providers.claudeAgent.customModels.length > 0,
     ),
   });
@@ -1241,6 +1243,43 @@ export function GeneralSettingsPanel() {
                         </span>
                       </label>
                     </div>
+
+                    {providerCard.provider === "claudeAgent" ? (
+                      <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                        <label
+                          htmlFor="provider-install-claudeAgent-api-key"
+                          className="block"
+                        >
+                          <span className="text-xs font-medium text-foreground">
+                            API key
+                          </span>
+                          <Input
+                            id="provider-install-claudeAgent-api-key"
+                            className="mt-1.5"
+                            type="password"
+                            autoComplete="off"
+                            value={settings.providers.claudeAgent.apiKey}
+                            onChange={(event) =>
+                              updateSettings({
+                                providers: {
+                                  ...settings.providers,
+                                  claudeAgent: {
+                                    ...settings.providers.claudeAgent,
+                                    apiKey: event.target.value,
+                                  },
+                                },
+                              })
+                            }
+                            placeholder="sk-ant-..."
+                            spellCheck={false}
+                          />
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            Optional. Anthropic API key for direct API access. Leave empty to use{" "}
+                            <code className="text-[11px]">claude auth login</code> instead.
+                          </span>
+                        </label>
+                      </div>
+                    ) : null}
 
                     {providerCard.homePathKey ? (
                       <div className="border-t border-border/60 px-4 py-3 sm:px-5">

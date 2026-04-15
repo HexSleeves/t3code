@@ -2779,7 +2779,10 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(newSessionId ? { sessionId: newSessionId } : {}),
         includePartialMessages: true,
         canUseTool,
-        env: process.env,
+        env: {
+          ...process.env,
+          ...(claudeSettings.apiKey ? { ANTHROPIC_API_KEY: claudeSettings.apiKey } : {}),
+        },
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
       };
 

@@ -423,7 +423,7 @@ function dedupeSlashCommands(
  * This is used as a fallback when `claude auth status` does not include
  * subscription type information.
  */
-const probeClaudeCapabilities = (binaryPath: string) => {
+const probeClaudeCapabilities = (binaryPath: string, apiKey?: string) => {
   const abort = new AbortController();
   return Effect.tryPromise(async () => {
     const q = claudeQuery({
@@ -436,6 +436,10 @@ const probeClaudeCapabilities = (binaryPath: string) => {
         settingSources: ["user", "project", "local"],
         allowedTools: [],
         stderr: () => {},
+        env: {
+          ...process.env,
+          ...(apiKey ? { ANTHROPIC_API_KEY: apiKey } : {}),
+        },
       },
     });
     const init = await q.initializationResult();
@@ -465,6 +469,10 @@ const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (args: Readonly
   );
   const command = ChildProcess.make(claudeSettings.binaryPath, [...args], {
     shell: process.platform === "win32",
+    env: {
+      ...process.env,
+      ...(claudeSettings.apiKey ? { ANTHROPIC_API_KEY: claudeSettings.apiKey } : {}),
+    },
   });
   return yield* spawnAndCollect(claudeSettings.binaryPath, command);
 });
@@ -712,16 +720,29 @@ export const ClaudeProviderLive = Layer.effect(
     const subscriptionProbeCache = yield* Cache.make({
       capacity: 1,
       timeToLive: Duration.minutes(5),
-      lookup: (binaryPath: string) => probeClaudeCapabilities(binaryPath),
+      lookup: (cacheKey: string) => {
+        const [binaryPath, apiKey] = cacheKey.split("\0");
+        return probeClaudeCapabilities(binaryPath!, apiKey || undefined);
+      },
     });
 
+    const getProbeCacheKey = serverSettings.getSettings.pipe(
+      Effect.map((settings) => {
+        const claude = settings.providers.claudeAgent;
+        return `${claude.binaryPath}\0${claude.apiKey}`;
+      }),
+      Effect.orDie,
+    );
+
     const checkProvider = checkClaudeProviderStatus(
-      (binaryPath) =>
-        Cache.get(subscriptionProbeCache, binaryPath).pipe(
+      (_binaryPath) =>
+        getProbeCacheKey.pipe(
+          Effect.flatMap((key) => Cache.get(subscriptionProbeCache, key)),
           Effect.map((probe) => probe?.subscriptionType),
         ),
-      (binaryPath) =>
-        Cache.get(subscriptionProbeCache, binaryPath).pipe(
+      (_binaryPath) =>
+        getProbeCacheKey.pipe(
+          Effect.flatMap((key) => Cache.get(subscriptionProbeCache, key)),
           Effect.map((probe) => probe?.slashCommands),
         ),
     ).pipe(
