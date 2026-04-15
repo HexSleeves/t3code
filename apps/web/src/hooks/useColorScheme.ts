@@ -90,21 +90,27 @@ function getServerSnapshot(): ColorSchemeId {
   return "default";
 }
 
-function subscribe(listener: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
-  listeners.push(listener);
+// Single module-level storage listener, registered once on first subscribe
+let storageListenerAttached = false;
 
-  const handleStorage = (e: StorageEvent) => {
+function ensureStorageListener() {
+  if (storageListenerAttached || typeof window === "undefined") return;
+  storageListenerAttached = true;
+  window.addEventListener("storage", (e: StorageEvent) => {
     if (e.key === STORAGE_KEY) {
       applyScheme(getStored(), true);
       emitChange();
     }
-  };
-  window.addEventListener("storage", handleStorage);
+  });
+}
+
+function subscribe(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  listeners.push(listener);
+  ensureStorageListener();
 
   return () => {
     listeners = listeners.filter((l) => l !== listener);
-    window.removeEventListener("storage", handleStorage);
   };
 }
 
