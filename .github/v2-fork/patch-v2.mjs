@@ -3,15 +3,17 @@
 //
 // Usage: node patch-v2.mjs <path-to-upstream-checkout>
 //
-// Every replacement must match exactly once. If upstream moves any of these
-// lines the build fails here, rather than silently shipping an app that
-// migrates ~/.t3/userdata to the V2 schema.
+// Every replacement must match exactly `count` times (default 1). If upstream
+// moves any of these lines the build fails here, rather than silently shipping
+// an app that migrates a ~/.t3/userdata database to the V2 schema.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.argv[2];
-if (!root) {
-  console.error("usage: node patch-v2.mjs <checkout>");
+// The fork publishing these builds, e.g. HexSleeves/t3code (set by Actions).
+const releaseRepository = process.env.GITHUB_REPOSITORY;
+if (!root || !releaseRepository) {
+  console.error("usage: GITHUB_REPOSITORY=<owner/repo> node patch-v2.mjs <checkout>");
   process.exit(2);
 }
 
@@ -49,20 +51,36 @@ const edits = [
     from: 'return join(NodeOS.homedir(), ".t3");',
     to: 'return join(NodeOS.homedir(), ".t3-v2");',
   },
+  {
+    // SSH environments run the server on the remote host with this home, so
+    // it must not be the regular app's ~/.t3 there either (and must not reuse
+    // a regular T3 server already running from it).
+    file: "packages/ssh/src/tunnel.ts",
+    from: '"$HOME/.t3',
+    to: '"$HOME/.t3-v2',
+    count: 10,
+  },
+  {
+    // SSH environments and CLI updates download server archives matching this
+    // app's exact version, which only exist on the fork's releases.
+    file: "packages/shared/src/cliRelease.ts",
+    from: 'const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";',
+    to: `const CLI_RELEASE_REPOSITORY = "${releaseRepository}";`,
+  },
 ];
 
 let failed = false;
-for (const { file, from, to } of edits) {
+for (const { file, from, to, count = 1 } of edits) {
   const path = join(root, file);
   const source = readFileSync(path, "utf8");
-  const count = source.split(from).length - 1;
-  if (count !== 1) {
-    console.error(`::error file=${file}::expected 1 match for ${from}, found ${count}`);
+  const found = source.split(from).length - 1;
+  if (found !== count) {
+    console.error(`::error file=${file}::expected ${count} matches for ${from}, found ${found}`);
     failed = true;
     continue;
   }
-  writeFileSync(path, source.replace(from, to));
-  console.log(`patched ${file}: ${to}`);
+  writeFileSync(path, source.replaceAll(from, to));
+  console.log(`patched ${file} (${count}x): ${to}`);
 }
 
 if (failed) process.exit(1);

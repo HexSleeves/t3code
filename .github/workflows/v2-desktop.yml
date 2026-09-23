@@ -173,7 +173,8 @@ jobs:
           retention-days: 1
 
   # No secrets are passed: builds are unsigned, and Clerk/relay settings are
-  # empty, which leaves T3 Connect and cloud sign-in off in these builds.
+  # empty, which leaves T3 Connect and cloud sign-in off in these builds. Each
+  # platform also builds its server (CLI) archive for SSH environments.
   desktop_mac_arm64:
     name: Desktop macOS arm64
     needs: [prepare, build_bundle]
@@ -186,7 +187,7 @@ jobs:
       arch: arm64
       rust_target: aarch64-apple-darwin
       resource_key: darwin-arm64
-      cli_archive: false
+      cli_archive: true
       version: ${{ needs.prepare.outputs.version }}
       ref: ${{ needs.prepare.outputs.ref }}
       release_channel: nightly
@@ -208,7 +209,7 @@ jobs:
       arch: x64
       rust_target: x86_64-unknown-linux-gnu
       resource_key: linux-x64
-      cli_archive: false
+      cli_archive: true
       version: ${{ needs.prepare.outputs.version }}
       ref: ${{ needs.prepare.outputs.ref }}
       release_channel: nightly
@@ -235,6 +236,15 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      # Server archives: SSH environments download the one matching the app's
+      # exact version from this repository's releases.
+      - name: Download CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          path: release-assets
+          merge-multiple: true
+
       - name: Create prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -254,6 +264,7 @@ jobs:
 
           - Installs as **T3 Code (V2)** beside the regular app and keeps its data in \`~/.t3-v2\`.
           - T3 Connect and cloud sign-in are disabled.
+          - SSH environments install the matching \`t3\` server from this release and run it with \`~/.t3-v2\` on the remote host.
           - macOS: after installing, run \`xattr -dr com.apple.quarantine "/Applications/T3 Code (V2).app"\`. It does not auto-update; reinstall from a newer release.
           - Linux: the AppImage auto-updates from this repository's prereleases.
 
