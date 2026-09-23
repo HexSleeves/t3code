@@ -49,7 +49,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           path: fork
-          sparse-checkout: .github/v2-fork
+          sparse-checkout: |
+            .github/v2-fork
+            .github/workflows
 
       - name: Fetch upstream V2 head
         id: upstream
@@ -92,6 +94,14 @@ jobs:
           set -euo pipefail
           cd v2
           node ../fork/.github/v2-fork/patch-v2.mjs .
+
+          # The default token may not push commits that change workflow files,
+          # so the build ref carries this fork's workflows instead of
+          # upstream's. The platform builds call upstream's release-desktop.yml
+          # from upstream directly, so these copies are never run.
+          rm -rf .github/workflows
+          cp -R ../fork/.github/workflows .github/workflows
+          git add -A .github/workflows
 
           # Nightly-style version so the desktop updater treats this as its
           # nightly channel: <upstream desktop version, patch + 1>-nightly.<date>.<run>
