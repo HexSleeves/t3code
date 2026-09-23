@@ -24,14 +24,11 @@ const edits = [
   },
   {
     // Nightly-style versions drive the updater; only the visible name changes.
+    // The in-app stage label stays "Nightly": the desktop app validates it
+    // against a fixed list ("Alpha" | "Dev" | "Nightly") at startup.
     file: "scripts/build-desktop-artifact.ts",
     from: '"T3 Code (Nightly)"',
     to: '"T3 Code (V2)"',
-  },
-  {
-    file: "apps/desktop/src/app/DesktopEnvironment.ts",
-    from: '? "Nightly" : "Alpha"',
-    to: '? "V2" : "Alpha"',
   },
   {
     // Own Chromium profile, and therefore its own single-instance lock. The
