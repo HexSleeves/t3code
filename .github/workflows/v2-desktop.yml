@@ -172,13 +172,27 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # No secrets are passed: builds are unsigned, and Clerk/relay settings are
-  # empty, which leaves T3 Connect and cloud sign-in off in these builds. Each
-  # platform also builds its server (CLI) archive for SSH environments.
+  # Clerk/relay settings are empty, which leaves T3 Connect and cloud sign-in
+  # off in these builds. Each platform also builds its server (CLI) archive
+  # for SSH environments.
+  #
+  # macOS signs and notarizes when the Apple secrets below exist (see
+  # .github/v2-fork/setup-macos-signing.sh), which is what lets the installed
+  # app auto-update; without them the build is unsigned. `secrets: inherit`
+  # does not cross repository owners, so they are passed explicitly. The
+  # called workflow also reads the APPLE_TEAM_ID and CLERK_PASSKEY_RP_DOMAINS
+  # repository variables.
   desktop_mac_arm64:
     name: Desktop macOS arm64
     needs: [prepare, build_bundle]
     uses: pingdotgg/t3code/.github/workflows/release-desktop.yml@t3code/codex-turn-mapping
+    secrets:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
     with:
       label: macOS arm64
       runner: macos-15
@@ -260,12 +274,12 @@ jobs:
           ls -la release-assets
 
           cat > notes.md <<EOF
-          Unofficial build of upstream [\`$UPSTREAM_BRANCH\`](https://github.com/$UPSTREAM_REPO/commit/$UPSTREAM_SHA) (orchestration V2), unsigned.
+          Unofficial build of upstream [\`$UPSTREAM_BRANCH\`](https://github.com/$UPSTREAM_REPO/commit/$UPSTREAM_SHA) (orchestration V2).
 
           - Installs as **T3 Code (V2)** beside the regular app and keeps its data in \`~/.t3-v2\`.
           - T3 Connect and cloud sign-in are disabled.
           - SSH environments install the matching \`t3\` server from this release and run it with \`~/.t3-v2\` on the remote host.
-          - macOS: after installing, run \`xattr -dr com.apple.quarantine "/Applications/T3 Code (V2).app"\`. It does not auto-update; reinstall from a newer release.
+          - macOS: auto-updates when this build is signed. Unsigned builds need \`xattr -dr com.apple.quarantine "/Applications/T3 Code (V2).app"\` after installing and do not auto-update.
           - Linux: the AppImage auto-updates from this repository's prereleases.
 
           Platform results: macOS arm64 $MAC_RESULT, Linux x64 $LINUX_RESULT.

@@ -16,13 +16,16 @@ if (!root || !releaseRepository) {
   console.error("usage: GITHUB_REPOSITORY=<owner/repo> node patch-v2.mjs <checkout>");
   process.exit(2);
 }
+// Bundle id in the fork owner's namespace, e.g. com.hexsleeves.t3code.v2. It
+// must be registered under the signing team (see setup-macos-signing.sh).
+const appId = `com.${releaseRepository.split("/")[0].toLowerCase()}.t3code.v2`;
 
 const edits = [
   {
     // Separate macOS bundle id, so it installs next to T3 Code instead of over it.
     file: "scripts/build-desktop-artifact.ts",
     from: 'const DESKTOP_APP_ID = "com.t3tools.t3code";',
-    to: 'const DESKTOP_APP_ID = "com.t3tools.t3code.v2";',
+    to: `const DESKTOP_APP_ID = "${appId}";`,
   },
   {
     // Nightly-style versions drive the updater; only the visible name changes.
