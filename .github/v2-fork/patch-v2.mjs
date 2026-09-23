@@ -64,6 +64,14 @@ const edits = [
     count: 10,
   },
   {
+    // On Linux the app claims t3code:// by rewriting the regular app's
+    // com.t3tools.T3Code.desktop and running xdg-mime. Leave that to the
+    // regular install so its sign-in callbacks keep working.
+    file: "apps/desktop/src/app/DesktopLinuxUrlHandler.ts",
+    from: 'if (environment.platform !== "linux") {',
+    to: 'if (environment.platform !== "linux" || environment.isPackaged) {',
+  },
+  {
     // SSH environments and CLI updates download server archives matching this
     // app's exact version, which only exist on the fork's releases.
     file: "packages/shared/src/cliRelease.ts",
