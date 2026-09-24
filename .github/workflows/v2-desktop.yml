@@ -133,6 +133,11 @@ jobs:
     if: needs.prepare.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      T3CODE_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+      T3CODE_CLERK_JWT_TEMPLATE: ${{ vars.CLERK_JWT_TEMPLATE }}
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ vars.CLERK_CLI_OAUTH_CLIENT_ID }}
+      T3CODE_RELAY_URL: ${{ vars.RELAY_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -172,9 +177,10 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Clerk/relay settings are empty, which leaves T3 Connect and cloud sign-in
-  # off in these builds. Each platform also builds its server (CLI) archive
-  # for SSH environments.
+  # T3 Connect uses T3's public Clerk/relay settings, copied from an official
+  # build into the CLERK_* and RELAY_URL repository variables; leave them
+  # unset to build without it. Each platform also builds its server (CLI)
+  # archive for SSH environments.
   #
   # macOS signs and notarizes when the Apple secrets below exist (see
   # .github/v2-fork/setup-macos-signing.sh), which is what lets the installed
@@ -206,10 +212,10 @@ jobs:
       ref: ${{ needs.prepare.outputs.ref }}
       release_channel: nightly
       relay_client_tracing: false
-      clerk_publishable_key: ""
-      clerk_jwt_template: ""
-      clerk_cli_oauth_client_id: ""
-      relay_url: ""
+      clerk_publishable_key: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+      clerk_jwt_template: ${{ vars.CLERK_JWT_TEMPLATE }}
+      clerk_cli_oauth_client_id: ${{ vars.CLERK_CLI_OAUTH_CLIENT_ID }}
+      relay_url: ${{ vars.RELAY_URL }}
 
   desktop_linux_x64:
     name: Desktop Linux x64
@@ -228,10 +234,10 @@ jobs:
       ref: ${{ needs.prepare.outputs.ref }}
       release_channel: nightly
       relay_client_tracing: false
-      clerk_publishable_key: ""
-      clerk_jwt_template: ""
-      clerk_cli_oauth_client_id: ""
-      relay_url: ""
+      clerk_publishable_key: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+      clerk_jwt_template: ${{ vars.CLERK_JWT_TEMPLATE }}
+      clerk_cli_oauth_client_id: ${{ vars.CLERK_CLI_OAUTH_CLIENT_ID }}
+      relay_url: ${{ vars.RELAY_URL }}
 
   release:
     name: Publish prerelease
@@ -277,7 +283,7 @@ jobs:
           Unofficial build of upstream [\`$UPSTREAM_BRANCH\`](https://github.com/$UPSTREAM_REPO/commit/$UPSTREAM_SHA) (orchestration V2).
 
           - Installs as **T3 Code (V2)** beside the regular app and keeps its data in \`~/.t3-v2\`.
-          - T3 Connect and cloud sign-in are disabled.
+          - T3 Connect uses T3's hosted relay; passkey sign-in is unavailable in these builds.
           - SSH environments install the matching \`t3\` server from this release and run it with \`~/.t3-v2\` on the remote host.
           - macOS: auto-updates when this build is signed. Unsigned builds need \`xattr -dr com.apple.quarantine "/Applications/T3 Code (V2).app"\` after installing and do not auto-update.
           - Linux: the AppImage auto-updates from this repository's prereleases.
