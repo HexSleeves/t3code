@@ -1,0 +1,11 @@
+# Pull app (https://github.com/wei/pull) keeps this fork current with upstream.
+version: "1"
+rules:
+  # main mirrors upstream exactly.
+  - base: main
+    upstream: pingdotgg:main
+    mergeMethod: hardreset
+  # dev is upstream plus this fork's V2 build files, so merge instead of reset.
+  - base: dev
+    upstream: pingdotgg:main
+    mergeMethod: merge

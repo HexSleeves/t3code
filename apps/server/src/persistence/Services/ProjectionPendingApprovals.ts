@@ -14,8 +14,10 @@ import {
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
-import { Option, Schema, Context } from "effect";
-import type { Effect } from "effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -40,11 +42,6 @@ export const GetProjectionPendingApprovalInput = Schema.Struct({
 });
 export type GetProjectionPendingApprovalInput = typeof GetProjectionPendingApprovalInput.Type;
 
-export const DeleteProjectionPendingApprovalInput = Schema.Struct({
-  requestId: ApprovalRequestId,
-});
-export type DeleteProjectionPendingApprovalInput = typeof DeleteProjectionPendingApprovalInput.Type;
-
 /**
  * ProjectionPendingApprovalRepositoryShape - Service API for pending approvals.
  */
@@ -67,6 +64,11 @@ export interface ProjectionPendingApprovalRepositoryShape {
     input: ListProjectionPendingApprovalsInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionPendingApproval>, ProjectionRepositoryError>;
 
+  /** Count pending approvals without loading resolved request history. */
+  readonly countPendingByThreadId: (
+    input: ListProjectionPendingApprovalsInput,
+  ) => Effect.Effect<number, ProjectionRepositoryError>;
+
   /**
    * Read a pending approval row by request id.
    */
@@ -75,10 +77,10 @@ export interface ProjectionPendingApprovalRepositoryShape {
   ) => Effect.Effect<Option.Option<ProjectionPendingApproval>, ProjectionRepositoryError>;
 
   /**
-   * Delete a pending approval row by request id.
+   * Delete every pending approval row for a thread.
    */
-  readonly deleteByRequestId: (
-    input: DeleteProjectionPendingApprovalInput,
+  readonly deleteByThreadId: (
+    input: ListProjectionPendingApprovalsInput,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 

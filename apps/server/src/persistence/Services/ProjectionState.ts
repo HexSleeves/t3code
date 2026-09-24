@@ -7,8 +7,10 @@
  * @module ProjectionStateRepository
  */
 import { IsoDateTime, NonNegativeInt } from "@t3tools/contracts";
-import { Option, Schema, Context } from "effect";
-import type { Effect } from "effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -35,6 +37,11 @@ export interface ProjectionStateRepositoryShape {
    */
   readonly upsert: (row: ProjectionState) => Effect.Effect<void, ProjectionRepositoryError>;
 
+  /** Insert or replace projector cursors in one statement. Empty batches do nothing. */
+  readonly upsertMany: (
+    rows: ReadonlyArray<ProjectionState>,
+  ) => Effect.Effect<void, ProjectionRepositoryError>;
+
   /**
    * Read projection cursor state for a projector key.
    */
@@ -46,13 +53,6 @@ export interface ProjectionStateRepositoryShape {
    * List all projector cursor rows.
    */
   readonly listAll: () => Effect.Effect<ReadonlyArray<ProjectionState>, ProjectionRepositoryError>;
-
-  /**
-   * Read the minimum applied sequence across all projectors.
-   *
-   * Returns `null` when no projector state rows exist.
-   */
-  readonly minLastAppliedSequence: () => Effect.Effect<number | null, ProjectionRepositoryError>;
 }
 
 /**
