@@ -255,6 +255,7 @@ step "Bundle ID: Explicit, $APP_ID"
 step "Under Capabilities, tick Associated Domains (the app requests it for passkeys)."
 step "Continue, then Register."
 note "Already registered? Make sure Associated Domains is enabled on it, then move on."
+note "It must be listed under Identifiers before the profile stage can offer it."
 pause "Press Enter once $APP_ID is registered"
 
 stage "Create the Developer ID Application certificate"
@@ -301,7 +302,20 @@ step "Under Distribution choose Developer ID, Continue."
 step "App ID: $APP_ID, Continue."
 step "Select the Developer ID Application certificate you just made, Continue."
 step "Name it T3 Code V2 Developer ID, Generate, then Download."
-ask_file PROFILE_PATH "Path to the downloaded .provisionprofile:"
+while :; do
+  ask_file PROFILE_PATH "Path to the downloaded .provisionprofile:"
+  # The build's entitlements claim this app id and Associated Domains; macOS
+  # refuses to launch the app if the embedded profile does not grant both.
+  profile_xml=$(security cms -D -i "$PROFILE_PATH" 2>/dev/null ||
+    openssl smime -inform DER -verify -noverify -in "$PROFILE_PATH" 2>/dev/null || true)
+  if [[ "$profile_xml" != *"<string>$APPLE_TEAM_ID.$APP_ID</string>"* ]]; then
+    warn "this profile is not for $APP_ID. Pick that App ID when generating it."
+  elif [[ "$profile_xml" != *"com.apple.developer.associated-domains"* ]]; then
+    warn "this profile lacks Associated Domains. Enable it on $APP_ID, then regenerate."
+  else
+    break
+  fi
+done
 write_env PROFILE_PATH "$PROFILE_PATH"
 set_secret MACOS_PROVISIONING_PROFILE "$(base64 < "$PROFILE_PATH" | tr -d '\n')"
 
