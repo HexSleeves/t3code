@@ -270,6 +270,22 @@ export interface AcpAdapterV2Flavor {
   /** Native session mode to select for a runtime policy (e.g. Antigravity `yolo`). */
   readonly sessionModeForPolicy?: (policy: ProviderAdapterV2RuntimePolicy) => string | undefined;
   /**
+   * Serves the agent's `fs/read_text_file` and `fs/write_text_file` requests in
+   * place of the generic handlers, after the runtime policy guard. Receives the
+   * cwd of the policy active when the request arrives, which is null when the
+   * session has no workspace. Antigravity confines them to its workspace.
+   */
+  readonly clientFileSystem?: {
+    readonly readTextFile: (
+      request: EffectAcpSchema.ReadTextFileRequest,
+      cwd: string | null,
+    ) => Effect.Effect<EffectAcpSchema.ReadTextFileResponse, EffectAcpErrors.AcpError>;
+    readonly writeTextFile: (
+      request: EffectAcpSchema.WriteTextFileRequest,
+      cwd: string | null,
+    ) => Effect.Effect<EffectAcpSchema.WriteTextFileResponse, EffectAcpErrors.AcpError>;
+  };
+  /**
    * Permission requests that are really questions (Antigravity `interaction_*`
    * tool calls). Returns the question and a response builder; undefined routes
    * the request through the normal approval card.
@@ -5379,14 +5395,29 @@ export function makeAcpAdapterV2(options: AcpAdapterV2Options): ProviderAdapterV
               Effect.succeed(request),
               requestContext.requestId,
             );
+          // A flavor's own handlers replace the generic ones: effect-acp keeps
+          // only the last handler registered per method. They confine requests
+          // to the workspace of the policy the guard checks at request time,
+          // not the one the session opened with.
+          const clientFileSystem = flavor.clientFileSystem;
           yield* targetRuntime.handleReadTextFile((request) =>
             guardClientFsRead(request.path).pipe(
-              Effect.andThen(acpReadTextFile(options.fileSystem, request)),
+              Effect.andThen(clientPolicyContext),
+              Effect.flatMap(({ policy }) =>
+                clientFileSystem === undefined
+                  ? acpReadTextFile(options.fileSystem, request)
+                  : clientFileSystem.readTextFile(request, policy.cwd),
+              ),
             ),
           );
           yield* targetRuntime.handleWriteTextFile((request) =>
             guardClientFsWrite(request.path).pipe(
-              Effect.andThen(acpWriteTextFile(options.fileSystem, request)),
+              Effect.andThen(clientPolicyContext),
+              Effect.flatMap(({ policy }) =>
+                clientFileSystem === undefined
+                  ? acpWriteTextFile(options.fileSystem, request)
+                  : clientFileSystem.writeTextFile(request, policy.cwd),
+              ),
             ),
           );
           if (handlerOptions.mcp !== false) {
