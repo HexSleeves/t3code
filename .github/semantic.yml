@@ -1,0 +1,3 @@
+# Semantic PRs app: this fork only receives automated upstream sync PRs
+# from the Pull app, whose titles are not conventional commits.
+enabled: false
