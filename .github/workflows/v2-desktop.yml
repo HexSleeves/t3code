@@ -1,0 +1,312 @@
+name: V2 Desktop Build
+
+# Builds "T3 Code (V2)" desktop apps from upstream's orchestration V2 branch
+# and publishes them as prereleases on this fork.
+#
+# Upstream force-pushes the V2 branch several times a day, so builds are keyed
+# on the upstream commit SHA (recorded in each release name), not on ancestry.
+# The platform builds reuse upstream's own reusable release-desktop.yml, which
+# checks out `ref` from this repository, so each run first pushes the patched
+# commit (see .github/v2-fork/patch-v2.mjs) to the v2-build branch here.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Build even if this upstream commit was already built
+        type: boolean
+        default: false
+
+concurrency:
+  group: v2-desktop
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_REPO: pingdotgg/t3code
+  UPSTREAM_BRANCH: t3code/codex-turn-mapping
+  BUILD_BRANCH: v2-build
+  RELEASE_PREFIX: T3 Code V2
+  KEEP_RELEASES: 8
+
+jobs:
+  prepare:
+    name: Resolve and patch upstream V2
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      build: ${{ steps.gate.outputs.build }}
+      ref: ${{ steps.patch.outputs.ref }}
+      version: ${{ steps.patch.outputs.version }}
+      upstream_sha: ${{ steps.upstream.outputs.sha }}
+    steps:
+      - name: Check out patch script
+        uses: actions/checkout@v6
+        with:
+          path: fork
+          sparse-checkout: |
+            .github/v2-fork
+            .github/workflows
+
+      - name: Fetch upstream V2 head
+        id: upstream
+        run: |
+          set -euo pipefail
+          git init -q v2
+          cd v2
+          git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
+          git fetch -q --no-tags --depth=1 upstream "refs/heads/$UPSTREAM_BRANCH"
+          git checkout -q --detach FETCH_HEAD
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short=${sha:0:12}" >> "$GITHUB_OUTPUT"
+          echo "Upstream $UPSTREAM_BRANCH is at $sha: $(git log -1 --format=%s)"
+
+      - name: Skip if already built
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force || false }}
+          SHORT_SHA: ${{ steps.upstream.outputs.short }}
+        run: |
+          set -euo pipefail
+          if [[ "$FORCE" != "true" ]] &&
+            gh release list -R "$GITHUB_REPOSITORY" --limit 50 --json name --jq '.[].name' |
+              grep -qF "($SHORT_SHA)"; then
+            echo "Upstream $SHORT_SHA was already built. Skipping."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Patch, commit, and push build ref
+        id: patch
+        if: steps.gate.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_SHA: ${{ steps.upstream.outputs.sha }}
+        run: |
+          set -euo pipefail
+          cd v2
+          node ../fork/.github/v2-fork/patch-v2.mjs .
+
+          # The default token may not push commits that change workflow files,
+          # so the build ref carries this fork's workflows instead of
+          # upstream's. The platform builds call upstream's release-desktop.yml
+          # from upstream directly, so these copies are never run.
+          rm -rf .github/workflows
+          cp -R ../fork/.github/workflows .github/workflows
+          git add -A .github/workflows
+
+          # Nightly-style version so the desktop updater treats this as its
+          # nightly channel: <upstream desktop version, patch + 1>-nightly.<date>.<run>
+          base="$(node -p "const [a, b, c] = require('./apps/desktop/package.json').version.split('-')[0].split('.').map(Number); [a, b, c + 1].join('.')")"
+          version="${base}-nightly.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
+
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -am "chore: build T3 Code V2 $version from upstream ${UPSTREAM_SHA:0:12}"
+
+          git remote add fork "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if ! git push -q --force fork "HEAD:refs/heads/$BUILD_BRANCH"; then
+            # A shallow push needs the parent already in the fork network.
+            # If it is not, send the full history instead.
+            echo "::warning::Shallow push rejected; retrying with full history."
+            git fetch -q --unshallow upstream
+            git push -q --force fork "HEAD:refs/heads/$BUILD_BRANCH"
+          fi
+
+          echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building $version"
+
+  # Mirrors upstream's build_bundle job in release.yml: the JS bundle is built
+  # once and consumed by every platform job as the `js-bundle` artifact.
+  build_bundle:
+    name: Build JS bundle
+    needs: [prepare]
+    if: needs.prepare.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      T3CODE_CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+      T3CODE_CLERK_JWT_TEMPLATE: ${{ vars.CLERK_JWT_TEMPLATE }}
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ vars.CLERK_CLI_OAUTH_CLIENT_ID }}
+      T3CODE_RELAY_URL: ${{ vars.RELAY_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install bundle dependencies
+        run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+
+      - name: Align package versions to release version
+        run: node scripts/update-release-package-versions.ts "${{ needs.prepare.outputs.version }}"
+
+      - name: Install browser secret helper build libraries
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+
+      - name: Build JS bundle
+        run: vp run build:desktop
+
+      - name: Upload JS bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+          retention-days: 1
+
+  # T3 Connect uses T3's public Clerk/relay settings, copied from an official
+  # build into the CLERK_* and RELAY_URL repository variables; leave them
+  # unset to build without it. Each platform also builds its server (CLI)
+  # archive for SSH environments.
+  #
+  # macOS signs and notarizes when the Apple secrets below exist (see
+  # .github/v2-fork/setup-macos-signing.sh), which is what lets the installed
+  # app auto-update; without them the build is unsigned. `secrets: inherit`
+  # does not cross repository owners, so they are passed explicitly. The
+  # called workflow also reads the APPLE_TEAM_ID and CLERK_PASSKEY_RP_DOMAINS
+  # repository variables.
+  desktop_mac_arm64:
+    name: Desktop macOS arm64
+    needs: [prepare, build_bundle]
+    uses: pingdotgg/t3code/.github/workflows/release-desktop.yml@t3code/codex-turn-mapping
+    secrets:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
+    with:
+      label: macOS arm64
+      runner: macos-15
+      platform: mac
+      target: dmg
+      arch: arm64
+      rust_target: aarch64-apple-darwin
+      resource_key: darwin-arm64
+      cli_archive: true
+      version: ${{ needs.prepare.outputs.version }}
+      ref: ${{ needs.prepare.outputs.ref }}
+      release_channel: nightly
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+      clerk_jwt_template: ${{ vars.CLERK_JWT_TEMPLATE }}
+      clerk_cli_oauth_client_id: ${{ vars.CLERK_CLI_OAUTH_CLIENT_ID }}
+      relay_url: ${{ vars.RELAY_URL }}
+
+  desktop_linux_x64:
+    name: Desktop Linux x64
+    needs: [prepare, build_bundle]
+    uses: pingdotgg/t3code/.github/workflows/release-desktop.yml@t3code/codex-turn-mapping
+    with:
+      label: Linux x64
+      runner: ubuntu-24.04
+      platform: linux
+      target: AppImage
+      arch: x64
+      rust_target: x86_64-unknown-linux-gnu
+      resource_key: linux-x64
+      cli_archive: true
+      version: ${{ needs.prepare.outputs.version }}
+      ref: ${{ needs.prepare.outputs.ref }}
+      release_channel: nightly
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+      clerk_jwt_template: ${{ vars.CLERK_JWT_TEMPLATE }}
+      clerk_cli_oauth_client_id: ${{ vars.CLERK_CLI_OAUTH_CLIENT_ID }}
+      relay_url: ${{ vars.RELAY_URL }}
+
+  release:
+    name: Publish prerelease
+    needs: [prepare, desktop_mac_arm64, desktop_linux_x64]
+    # Publish whichever platforms built; one failing platform should not
+    # block the other.
+    if: ${{ !cancelled() && needs.prepare.outputs.build == 'true' && (needs.desktop_mac_arm64.result == 'success' || needs.desktop_linux_x64.result == 'success') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: release-assets
+          merge-multiple: true
+
+      # Server archives: SSH environments download the one matching the app's
+      # exact version from this repository's releases.
+      - name: Download CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REF: ${{ needs.prepare.outputs.ref }}
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+          MAC_RESULT: ${{ needs.desktop_mac_arm64.result }}
+          LINUX_RESULT: ${{ needs.desktop_linux_x64.result }}
+        run: |
+          set -euo pipefail
+          rm -f release-assets/builder-debug.yml
+          (cd release-assets && sha256sum * > SHA256SUMS)
+          ls -la release-assets
+
+          cat > notes.md <<EOF
+          Unofficial build of upstream [\`$UPSTREAM_BRANCH\`](https://github.com/$UPSTREAM_REPO/commit/$UPSTREAM_SHA) (orchestration V2).
+
+          - Installs as **T3 Code (V2)** beside the regular app and keeps its data in \`~/.t3-v2\`.
+          - T3 Connect uses T3's hosted relay; passkey sign-in is unavailable in these builds.
+          - SSH environments install the matching \`t3\` server from this release and run it with \`~/.t3-v2\` on the remote host.
+          - macOS: auto-updates when this build is signed. Unsigned builds need \`xattr -dr com.apple.quarantine "/Applications/T3 Code (V2).app"\` after installing and do not auto-update.
+          - Linux: the AppImage auto-updates from this repository's prereleases.
+
+          Platform results: macOS arm64 $MAC_RESULT, Linux x64 $LINUX_RESULT.
+          EOF
+
+          gh release create "v$VERSION" release-assets/* \
+            -R "$GITHUB_REPOSITORY" \
+            --target "$REF" \
+            --prerelease \
+            --latest=false \
+            --title "$RELEASE_PREFIX $VERSION (${UPSTREAM_SHA:0:12})" \
+            --notes-file notes.md
+
+      - name: Prune old V2 prereleases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release list -R "$GITHUB_REPOSITORY" --limit 100 --json tagName,name,createdAt \
+            --jq "[.[] | select(.name | startswith(\"$RELEASE_PREFIX \"))] | sort_by(.createdAt) | reverse | .[$KEEP_RELEASES:] | .[].tagName" |
+            while read -r tag; do
+              echo "Deleting $tag"
+              gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            done
